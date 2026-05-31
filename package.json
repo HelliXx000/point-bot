@@ -1,7 +1,6 @@
 {
-  "name": "railway-point-bot",
+  "name": "point-bot",
   "version": "1.0.0",
-  "description": "Discord point bot with persistent storage",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
