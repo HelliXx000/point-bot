@@ -1,6 +1,13 @@
 const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const fs = require('fs');
 
-// Get token from Railway environment variables
+// CREATE THE DATA FOLDER IF IT DOESN'T EXIST
+const dataDir = './data';
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir);
+    console.log('📁 Created data folder');
+}
+
 const TOKEN = process.env.DISCORD_TOKEN;
 
 const client = new Client({ 
@@ -12,7 +19,7 @@ const client = new Client({
     ] 
 });
 
-// Database will be stored in Railway's persistent volume
+// NOW the folder exists, so this will work
 const Database = require('better-sqlite3');
 const db = new Database('./data/points.db');
 
@@ -173,11 +180,6 @@ client.on('interactionCreate', async interaction => {
             .setFooter({ text: `User ID: ${targetUser.id}` });
         
         await interaction.reply({ embeds: [embed] });
-        
-        // Try to DM the user
-        try {
-            await targetUser.send(`📢 You received **${amount}** points in ${interaction.guild.name}!\nReason: ${reason}\nTotal: ${newTotal} points`);
-        } catch(e) {}
     }
     
     // REMOVE POINTS
@@ -213,10 +215,6 @@ client.on('interactionCreate', async interaction => {
             .setTimestamp();
         
         await interaction.reply({ embeds: [embed] });
-        
-        try {
-            await targetUser.send(`📢 You lost **${amount}** points in ${interaction.guild.name}!\nReason: ${reason}\nRemaining: ${newTotal} points`);
-        } catch(e) {}
     }
     
     // CHECK POINTS
@@ -224,7 +222,6 @@ client.on('interactionCreate', async interaction => {
         const targetUser = interaction.options.getUser('user') || interaction.user;
         const userPoints = getPoints(targetUser.id);
         
-        // Calculate rank
         const allUsers = getAllPoints();
         let rank = 'N/A';
         for (let i = 0; i < allUsers.length; i++) {
@@ -241,8 +238,7 @@ client.on('interactionCreate', async interaction => {
             .addFields(
                 { name: 'User', value: targetUser.username, inline: true },
                 { name: 'Points', value: `${userPoints}`, inline: true },
-                { name: 'Rank', value: rank, inline: true },
-                { name: 'Message', value: userPoints === 0 ? 'No points yet!' : 'Keep it up! 💪', inline: false }
+                { name: 'Rank', value: rank, inline: true }
             )
             .setTimestamp();
         
@@ -314,7 +310,6 @@ client.on('interactionCreate', async interaction => {
         if (footer) setEmbedSetting('footer', footer);
         if (thumbnail) setEmbedSetting('thumbnail', thumbnail);
         
-        // Preview
         const preview = new EmbedBuilder()
             .setColor(color || getEmbedSetting('color', '#FFD700'))
             .setTitle(title || getEmbedSetting('title', '🏆 Point Leaderboard'))
@@ -330,7 +325,7 @@ client.on('interactionCreate', async interaction => {
         });
     }
     
-    // RESET ALL POINTS (DANGEROUS)
+    // RESET ALL POINTS
     if (interaction.commandName === 'resetpoints') {
         if (!isAdmin) {
             return interaction.reply({ content: '❌ Only admins can reset points!', ephemeral: true });
@@ -354,23 +349,10 @@ client.on('interactionCreate', async interaction => {
             .addFields(
                 { name: 'Reset by', value: interaction.user.username, inline: true },
                 { name: 'Time', value: new Date().toLocaleString(), inline: true }
-            )
-            .setFooter({ text: 'This action was logged' });
+            );
         
         await interaction.reply({ embeds: [embed] });
-        
-        // Log to console
-        console.log(`⚠️ ALL POINTS RESET by ${interaction.user.username} at ${new Date().toISOString()}`);
     }
-});
-
-// Auto-save is handled by SQLite (instant)
-// Even if bot crashes, all data is safe
-
-process.on('SIGINT', () => {
-    console.log('📦 Saving data before shutdown...');
-    db.close();
-    process.exit();
 });
 
 client.login(TOKEN);
