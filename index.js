@@ -62,6 +62,22 @@ function isAdmin(member) {
     return member.permissions.has(PermissionsBitField.Flags.Administrator);
 }
 
+// Helper to get user from mention or ID
+function getUserFromMentionOrId(message, input) {
+    // Check if it's a mention
+    if (input.startsWith('<@') && input.endsWith('>')) {
+        const id = input.replace(/[<@!>]/g, '');
+        return message.client.users.cache.get(id) || null;
+    }
+    
+    // Check if it's an ID
+    if (/^\d+$/.test(input)) {
+        return message.client.users.cache.get(input) || null;
+    }
+    
+    return null;
+}
+
 client.once('ready', async () => {
     console.log(`${client.user.tag} is online.`);
     
@@ -111,6 +127,14 @@ client.once('ready', async () => {
             options: [
                 { name: 'user', type: 6, description: 'Member to ban', required: true },
                 { name: 'reason', type: 3, description: 'Reason for ban', required: false }
+            ]
+        },
+        {
+            name: 'unban',
+            description: 'Unban a user by ID',
+            options: [
+                { name: 'userid', type: 3, description: 'User ID to unban', required: true },
+                { name: 'reason', type: 3, description: 'Reason for unban', required: false }
             ]
         },
         {
@@ -281,6 +305,35 @@ client.on('interactionCreate', async interaction => {
         }
     }
     
+    // UNBAN (slash)
+    if (interaction.commandName === 'unban') {
+        if (!isAdmin(interaction.member)) {
+            return interaction.reply({ content: 'You need administrator permission for this.', ephemeral: true });
+        }
+        
+        const userId = interaction.options.getString('userid');
+        const reason = interaction.options.getString('reason') || 'No reason provided';
+        
+        // Validate ID format
+        if (!/^\d+$/.test(userId)) {
+            return interaction.reply({ content: 'Please provide a valid user ID (numbers only).', ephemeral: true });
+        }
+        
+        try {
+            const bannedUsers = await interaction.guild.bans.fetch();
+            const bannedUser = bannedUsers.get(userId);
+            
+            if (!bannedUser) {
+                return interaction.reply({ content: 'That user is not banned or the ID is incorrect.', ephemeral: true });
+            }
+            
+            await interaction.guild.members.unban(userId, reason);
+            interaction.reply(`Done. Unbanned user <@${userId}>.`);
+        } catch (error) {
+            interaction.reply({ content: 'Failed to unban that user. Check my permissions or the ID.', ephemeral: true });
+        }
+    }
+    
     // KICK (slash)
     if (interaction.commandName === 'kick') {
         if (!isAdmin(interaction.member)) {
@@ -316,8 +369,7 @@ client.on('interactionCreate', async interaction => {
             .addFields(
                 { name: 'Point Management (Admin)', value: '`?addpoints @user <amount>` or `/addpoints`\n`?removepoints @user <amount>` or `/removepoints`\n`?setpoints @user <amount>` or `/setpoints`', inline: false },
                 { name: 'Point Checking', value: '`?points @user` or `/points`\n`?leaderboard` or `/leaderboard`', inline: false },
-                { name: 'Moderation (Admin)', value: '`?ban @user <reason>` or `/ban`\n`?kick @user <reason>` or `/kick`', inline: false },
-                { name: 'Reply to Ban/Kick', value: 'Reply to someones message with `?ban` or `?kick` to target them.', inline: false }
+                { name: 'Moderation (Admin)', value: '`?ban @user <reason>` or `/ban`\n`?unban <user_id> <reason>` or `/unban`\n`?kick @user <reason>` or `/kick`', inline: false }
             )
             .setFooter({ text: 'Point data is permanently saved' });
         
@@ -458,21 +510,22 @@ client.on('messageCreate', async message => {
         message.channel.send({ embeds: [embed] });
     }
     
-    // BAN (prefix)
+    // BAN (prefix) - ONLY with mention or ID, NO REPLY
     else if (command === 'ban') {
         if (!isAdmin(message.member)) {
             return message.reply('You need administrator permission for this.');
         }
         
-        let target = message.mentions.users.first();
-        
-        if (!target && message.reference) {
-            const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
-            target = repliedMsg.author;
+        const userInput = args[0];
+        if (!userInput) {
+            return message.reply('Please mention someone or provide a user ID. Example: `?ban @user` or `?ban 123456789`');
         }
         
+        // Get user from mention or ID
+        let target = getUserFromMentionOrId(message, userInput);
+        
         if (!target) {
-            return message.reply('Please mention someone to ban. Example: `?ban @user` or reply to their message with `?ban`');
+            return message.reply('Invalid user. Please mention someone like @user or provide a user ID.');
         }
         
         if (target.id === message.author.id) {
@@ -484,7 +537,7 @@ client.on('messageCreate', async message => {
             return message.reply('I cannot ban this user. They might have higher permissions than me.');
         }
         
-        const reason = args.join(' ') || 'No reason provided';
+        const reason = args.slice(1).join(' ') || 'No reason provided';
         
         try {
             await member.ban({ reason: reason });
@@ -494,21 +547,55 @@ client.on('messageCreate', async message => {
         }
     }
     
-    // KICK (prefix)
+    // UNBAN (prefix)
+    else if (command === 'unban') {
+        if (!isAdmin(message.member)) {
+            return message.reply('You need administrator permission for this.');
+        }
+        
+        const userId = args[0];
+        if (!userId) {
+            return message.reply('Please provide a user ID. Example: `?unban 123456789`');
+        }
+        
+        // Validate ID format
+        if (!/^\d+$/.test(userId)) {
+            return message.reply('Please provide a valid user ID (numbers only). Example: `?unban 123456789`');
+        }
+        
+        const reason = args.slice(1).join(' ') || 'No reason provided';
+        
+        try {
+            const bannedUsers = await message.guild.bans.fetch();
+            const bannedUser = bannedUsers.get(userId);
+            
+            if (!bannedUser) {
+                return message.reply('That user is not banned or the ID is incorrect.');
+            }
+            
+            await message.guild.members.unban(userId, reason);
+            message.reply(`Done. Unbanned user <@${userId}>.`);
+        } catch (error) {
+            message.reply('Failed to unban that user. Check my permissions or the ID.');
+        }
+    }
+    
+    // KICK (prefix) - ONLY with mention or ID, NO REPLY
     else if (command === 'kick') {
         if (!isAdmin(message.member)) {
             return message.reply('You need administrator permission for this.');
         }
         
-        let target = message.mentions.users.first();
-        
-        if (!target && message.reference) {
-            const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
-            target = repliedMsg.author;
+        const userInput = args[0];
+        if (!userInput) {
+            return message.reply('Please mention someone or provide a user ID. Example: `?kick @user` or `?kick 123456789`');
         }
         
+        // Get user from mention or ID
+        let target = getUserFromMentionOrId(message, userInput);
+        
         if (!target) {
-            return message.reply('Please mention someone to kick. Example: `?kick @user` or reply to their message with `?kick`');
+            return message.reply('Invalid user. Please mention someone like @user or provide a user ID.');
         }
         
         if (target.id === message.author.id) {
@@ -520,7 +607,7 @@ client.on('messageCreate', async message => {
             return message.reply('I cannot kick this user. They might have higher permissions than me.');
         }
         
-        const reason = args.join(' ') || 'No reason provided';
+        const reason = args.slice(1).join(' ') || 'No reason provided';
         
         try {
             await member.kick(reason);
@@ -533,24 +620,25 @@ client.on('messageCreate', async message => {
     // HELP (prefix)
     else if (command === 'help') {
         const helpText = `
-**Bot Commands**
+Bot Commands
 
-**Point Management (Admin)**
+Point Management (Admin)
 ?addpoints @user <amount> - Add points
 ?removepoints @user <amount> - Remove points
 ?setpoints @user <amount> - Set exact points
 
-**Point Checking**
+Point Checking
 ?points @user - Check points
 ?leaderboard - View leaderboard
 
-**Moderation (Admin)**
+Moderation (Admin)
 ?ban @user <reason> - Ban a user
+?ban 123456789 <reason> - Ban by ID
+?unban 123456789 <reason> - Unban a user by ID
 ?kick @user <reason> - Kick a user
+?kick 123456789 <reason> - Kick by ID
 
-**Tip:** Reply to someones message with ?ban or ?kick to target them.
-
-**Slash commands also available:** /addpoints, /removepoints, /setpoints, /points, /leaderboard, /ban, /kick, /help
+Slash commands also available: /addpoints, /removepoints, /setpoints, /points, /leaderboard, /ban, /unban, /kick, /help
         `;
         message.reply(helpText);
     }
