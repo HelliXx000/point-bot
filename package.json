@@ -1,0 +1,13 @@
+{
+  "name": "railway-point-bot",
+  "version": "1.0.0",
+  "description": "Discord point bot with persistent storage",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "better-sqlite3": "^9.0.0"
+  }
+}
